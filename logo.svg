@@ -1,0 +1,38 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 24 24"
+  width="24"
+  height="24"
+  fill="currentColor"
+  role="img"
+  aria-label="Lictor"
+>
+  <path
+    fill-rule="evenodd"
+    d="
+      M12 2
+      C6.9 2 4 5.8 4 10.5
+      V21
+      H9
+      V13
+      H15
+      V21
+      H20
+      V10.5
+      C20 5.8 17.1 2 12 2
+      Z
+
+      M12 5
+      C8.8 5 7 7.3 7 10.5
+      V18
+      H9
+      V10
+      H15
+      V18
+      H17
+      V10.5
+      C17 7.3 15.2 5 12 5
+      Z
+    "
+  />
+</svg>

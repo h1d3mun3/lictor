@@ -1,0 +1,69 @@
+name: CI
+
+# Runs the same suites as `bash tests/run-all.sh`, but as separate steps so a
+# failure names itself instead of being buried in one log.
+#
+# None of these touch a real tailscaled, launchd, or any state file outside the
+# runner: the agent suites use stub binaries, the socket suite runs its own fake
+# LocalAPI server, and the interop suite works in a temporary directory.
+
+# Pushes to a branch with an open pull request were running this twice for the
+# same commit, once per trigger. macOS minutes are billed at ten times the Linux
+# rate, so that was half the cost of the whole workflow for no added signal.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded run has nothing useful left to say.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project lictor.xcodeproj \
+            -scheme lictor \
+            -configuration Debug \
+            build
+
+      # The layer that must not die is tested first: if the agent is broken,
+      # nothing else matters.
+      - name: Agent - decision table
+        run: bash agent/test-agent.sh
+
+      - name: Agent - side effects
+        run: bash agent/test-agent-e2e.sh
+
+      - name: App - unit tests
+        run: bash tests/run-unit.sh
+
+      - name: App - unix socket client
+        run: bash tests/run-socket.sh
+
+      # The only thing standing between a serialisation change and silently
+      # disabling enforcement.
+      - name: App and agent - shared file interop
+        run: bash tests/run-interop.sh
+
+      - name: Shell prompt
+        run: bash tests/run-prompt.sh
+
+      - name: Repository language rule
+        run: bash tests/check-language.sh

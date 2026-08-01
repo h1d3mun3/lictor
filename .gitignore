@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# The maintainer's original handoff document. Japanese, and intentionally
+# not tracked (see CLAUDE.md).
+prompt.md
+
+# Raw captures from the milestone 0 verification run. These contain this node's
+# public keys, Tailscale IPs and the account email address.
+verify/results/
