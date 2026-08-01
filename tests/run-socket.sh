@@ -29,6 +29,22 @@ done
 
 "$BIN" "$SOCK"
 rc=$?
+
+# Three more servers, one per framing, plus one that hangs up mid-handshake.
+# tests/socket/server.py only ever sent Content-Length before, so nothing here
+# could fail on framing no matter how the client was written.
+for mode in chunked eof slam; do
+  echo
+  # Both of these report the failure they were asked to cause, so neither may
+  # be allowed to trip set -e.
+  kill "$SERVER_PID" 2>/dev/null || true
+  wait "$SERVER_PID" 2>/dev/null || true
+  rm -rf "$SOCK_DIR"
+  python3 "$ROOT/tests/socket/server.py" "$SOCK_DIR" 4 "$mode" > "$SOCK_DIR.log" 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
+  "$BIN" "$SOCK" "$mode" || rc=1
+done
 echo
 echo "--- requests seen by the server ---"
 grep '^REQ' "$SOCK_DIR.log" || true

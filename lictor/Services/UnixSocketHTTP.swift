@@ -3,10 +3,15 @@
 //  lictor
 //
 //  A minimal client that performs exactly one HTTP/1.1 round trip over a
-//
 //  unix domain socket. URLSession cannot speak to unix sockets, hence this.
-//  Sending `Connection: close` and reading until EOF lets us skip parsing
-//  Content-Length and chunked transfer encoding entirely.
+//
+//  `Connection: close` does NOT mean the response is unframed. Go's net/http,
+//  which tailscaled is built on, switches to chunked transfer encoding for any
+//  handler that writes more than a couple of kilobytes without setting
+//  Content-Length, and it sends both headers together. Treating everything after
+//  the blank line as the body therefore yields chunk-size lines mixed into the
+//  JSON, which fails to parse and silently blanks out whatever it was carrying.
+//  All three framings are handled here.
 //
 //  **This client blocks.** Always call it off the main thread.
 //
@@ -25,6 +30,7 @@ nonisolated enum UnixSocketHTTPError: Error, CustomStringConvertible {
     case writeFailed(Int32)
     case readFailed(Int32)
     case malformedResponse
+    case malformedBody(String)
 
     var description: String {
         switch self {
@@ -40,6 +46,8 @@ nonisolated enum UnixSocketHTTPError: Error, CustomStringConvertible {
             return "read failed (errno=\(e))"
         case .malformedResponse:
             return "malformed HTTP response"
+        case .malformedBody(let detail):
+            return "malformed HTTP body: \(detail)"
         }
     }
 }
@@ -60,6 +68,13 @@ nonisolated enum UnixSocketHTTP {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw UnixSocketHTTPError.socketCreationFailed(errno) }
         defer { close(fd) }
+
+        // Without this, a peer that closes between connect() and write() raises
+        // SIGPIPE, whose default disposition is still SIG_DFL here and kills the
+        // whole app. The app is allowed to die, but not silently and not for this.
+        var suppressSIGPIPE: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
+                   &suppressSIGPIPE, socklen_t(MemoryLayout<Int32>.size))
 
         try connect(fd: fd, to: socketPath)
         setTimeouts(fd: fd, seconds: timeout)
@@ -173,20 +188,82 @@ nonisolated enum UnixSocketHTTP {
             throw UnixSocketHTTPError.malformedResponse
         }
 
-        let headerData = raw[raw.startIndex..<range.lowerBound]
-        let body = Data(raw[range.upperBound...])
+        let remainder = Data(raw[range.upperBound...])
 
-        guard let header = String(data: headerData, encoding: .utf8),
-              let statusLine = header.split(separator: "\r\n", omittingEmptySubsequences: false).first
+        guard let header = String(data: raw[raw.startIndex..<range.lowerBound], encoding: .utf8)
         else {
             throw UnixSocketHTTPError.malformedResponse
         }
+        let lines = header.components(separatedBy: "\r\n")
 
         // "HTTP/1.1 200 OK"
+        guard let statusLine = lines.first else {
+            throw UnixSocketHTTPError.malformedResponse
+        }
         let fields = statusLine.split(separator: " ")
         guard fields.count >= 2, let status = Int(fields[1]) else {
             throw UnixSocketHTTPError.malformedResponse
         }
-        return HTTPResponse(status: status, body: body)
+
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            headers[name] = line[line.index(after: colon)...]
+                .trimmingCharacters(in: .whitespaces)
+        }
+
+        if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
+            return HTTPResponse(status: status, body: try dechunk(remainder))
+        }
+
+        if let text = headers["content-length"], let length = Int(text) {
+            guard remainder.count >= length else {
+                throw UnixSocketHTTPError.malformedBody(
+                    "Content-Length said \(length), got \(remainder.count)")
+            }
+            return HTTPResponse(status: status, body: remainder.prefix(length))
+        }
+
+        // No framing headers: the body runs to EOF, which is what Connection:
+        // close buys us.
+        return HTTPResponse(status: status, body: remainder)
+    }
+
+    /// Reassembles a chunked body.
+    ///
+    /// Each chunk is a hex length, optional `;extension`, CRLF, that many bytes,
+    /// CRLF. A zero length ends it; any trailer after that is ignored, because
+    /// nothing the LocalAPI sends puts anything there.
+    private static func dechunk(_ raw: Data) throws -> Data {
+        let crlf = Data("\r\n".utf8)
+        var out = Data()
+        var cursor = raw.startIndex
+
+        while true {
+            guard let lineEnd = raw[cursor...].range(of: crlf) else {
+                throw UnixSocketHTTPError.malformedBody("chunk size line is unterminated")
+            }
+            guard let line = String(data: Data(raw[cursor..<lineEnd.lowerBound]), encoding: .utf8)
+            else {
+                throw UnixSocketHTTPError.malformedBody("chunk size line is not text")
+            }
+
+            let sizeText = (line.split(separator: ";").first.map(String.init) ?? line)
+                .trimmingCharacters(in: .whitespaces)
+            guard let size = Int(sizeText, radix: 16), size >= 0 else {
+                throw UnixSocketHTTPError.malformedBody("bad chunk size \"\(sizeText)\"")
+            }
+
+            cursor = lineEnd.upperBound
+            if size == 0 { return out }
+
+            guard raw.distance(from: cursor, to: raw.endIndex) >= size + crlf.count else {
+                throw UnixSocketHTTPError.malformedBody("chunk of \(size) bytes is truncated")
+            }
+            let chunkEnd = raw.index(cursor, offsetBy: size)
+            out.append(raw[cursor..<chunkEnd])
+            cursor = raw.index(chunkEnd, offsetBy: crlf.count)
+        }
     }
 }

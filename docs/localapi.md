@@ -60,6 +60,27 @@ Everything probed so far.
 
 **No endpoint lists SSH sessions.** See section 7.
 
+### Response framing is NOT measured
+
+Everything above records response *bodies*. The captures were taken with `curl`, which
+hides the framing, so **which headers tailscaled sends is unverified**.
+
+It matters. tailscaled is a Go program, and `net/http` switches to
+`Transfer-Encoding: chunked` for any handler that writes past its buffer without setting
+`Content-Length` -- and sends that alongside `Connection: close`, not instead of it.
+`/localapi/v0/status` is comfortably large enough to cross that threshold on a tailnet with
+even one peer. A client that assumes "everything after the blank line is the body" would
+then find chunk-size lines inside the JSON, parse nothing, and silently lose
+`BackendState` and `Health`, which are the only two anomaly signals the app has.
+
+`UnixSocketHTTP` handles all three framings, so the answer no longer changes behaviour.
+Settle it anyway, and record it here:
+
+```bash
+curl -i --unix-socket /var/run/tailscaled.socket \
+  http://local-tailscaled.sock/localapi/v0/status | head -12
+```
+
 ### GET requests are not logged
 
 `tailscaled.log` records `POST` and `PATCH` only; `GET /localapi/v0/prefs` leaves no trace.

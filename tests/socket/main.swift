@@ -12,10 +12,11 @@
 import Foundation
 
 guard CommandLine.arguments.count > 1 else {
-    print("usage: socket-tests <socket-path>")
+    print("usage: socket-tests <socket-path> [framing]")
     exit(2)
 }
 let socketPath = CommandLine.arguments[1]
+let framing = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "length"
 
 var passed = 0
 var failed = 0
@@ -30,6 +31,37 @@ func check<T: Equatable>(_ name: String, _ want: T, _ got: T) {
         print("        want = \(want)")
         print("        got  = \(got)")
     }
+}
+
+// The framing suites run against a server started in one specific mode, so they
+// only assert the thing that mode is there to prove.
+if framing != "length" {
+    print("=== framing: \(framing) ===")
+
+    if framing == "slam" {
+        // A peer that closes without reading raises SIGPIPE on write. Reaching
+        // this line at all means the signal was suppressed; the process would
+        // otherwise have died of signal 13 before printing anything.
+        do {
+            _ = try UnixSocketHTTP.request(socketPath: socketPath, path: "/localapi/v0/prefs")
+            failed += 1
+            print("  FAIL  a slammed connection should not look like a valid response")
+        } catch {
+            passed += 1
+            print("  ok    a peer that closes without reading throws instead of killing us")
+        }
+    } else {
+        // Both of these carry the same JSON. A client that ignores framing gets
+        // chunk-size lines mixed into it and silently parses nothing.
+        let snapshot = TailscaleLocalAPI.snapshot(socketPath: socketPath)
+        check("BackendState survives \(framing) framing", "Running", snapshot.backendState)
+        check("RunSSH survives \(framing) framing", true, snapshot.runSSH)
+    }
+
+    print("\n────────────────────────────────")
+    print("  PASS \(passed) / FAIL \(failed)")
+    print("────────────────────────────────")
+    exit(failed == 0 ? 0 : 1)
 }
 
 print("=== UnixSocketHTTP ===")
