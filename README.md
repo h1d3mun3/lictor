@@ -154,6 +154,14 @@ Deliberately absent, and not planned:
 - Telemetry or any outbound network access
 - Mac App Store distribution
 
+## License
+
+[MIT](LICENSE).
+
+The parts most likely to be useful on their own are `lictor/Services/UnixSocketHTTP.swift`,
+because `URLSession` cannot talk to a unix socket, and `docs/localapi.md`, because the
+Tailscale LocalAPI has no official documentation. Take either.
+
 ## Status
 
 Built for one machine and one person. The assumptions in
