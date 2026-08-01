@@ -16,6 +16,8 @@ Measured facts about the Tailscale LocalAPI are in [../localapi.md](../localapi.
 | [0006](0006-write-the-state-file-before-enabling.md) | Write the state file before enabling SSH | Accepted |
 | [0007](0007-write-everything-in-english.md) | Write everything in the repository in English | Accepted |
 | [0008](0008-say-that-turning-off-disconnects.md) | State unconditionally that turning off disconnects live sessions | Accepted |
+| [0009](0009-split-notification-ownership.md) | Split notification ownership between the agent and the app | Accepted |
+| [0010](0010-extend-by-adding-to-the-deadline.md) | Extend by adding to the deadline, behind Touch ID | Accepted |
 
 ## Writing a new one
 
