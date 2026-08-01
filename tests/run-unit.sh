@@ -18,7 +18,7 @@ trap 'rm -f "$LOG"' EXIT
 xcodebuild \
   -project "$ROOT/lictor.xcodeproj" \
   -scheme lictor \
-  -destination 'platform=macOS,arch=arm64' \
+  -destination "platform=macOS,arch=$(uname -m)" \
   test > "$LOG" 2>&1
 rc=$?
 

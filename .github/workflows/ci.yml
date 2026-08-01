@@ -7,9 +7,12 @@ name: CI
 # runner: the agent suites use stub binaries, the socket suite runs its own fake
 # LocalAPI server, and the interop suite works in a temporary directory.
 
+# Pushes to a branch with an open pull request were running this twice for the
+# same commit, once per trigger. macOS minutes are billed at ten times the Linux
+# rate, so that was half the cost of the whole workflow for no added signal.
 on:
   push:
-    branches: [main, v1]
+    branches: [main]
   pull_request:
     branches: [main]
 
