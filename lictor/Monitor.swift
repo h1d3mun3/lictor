@@ -38,12 +38,26 @@ final class Monitor {
     /// The deadline the expiry warning was last fired for. Extending produces a
     /// new deadline, which re-arms the warning.
     private var lastWarnedFor: Date?
+    /// Refreshes are numbered so a slow one cannot publish over a newer result.
+    private var startedRefreshes = 0
+    private var publishedRefresh = 0
     private var pollTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var wakeObserver: (any NSObjectProtocol)?
 
     init() {
+        // Under `xcodebuild test` this app is launched as the test host, and its
+        // poll loop would then read the real /var/run/tailscaled.socket and the
+        // live ~/.local/state/lictor/state.json -- which CLAUDE.md, run-all.sh and
+        // the CI workflow all promise the suites never do. The tests exercise pure
+        // logic and need nothing from a running Monitor.
+        guard !Monitor.isRunningUnderTest else { return }
         start()
+    }
+
+    private static var isRunningUnderTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
     }
 
     // No deinit: the Monitor lives for the lifetime of the app, and a deinit
@@ -99,6 +113,15 @@ final class Monitor {
         isChecking = true
         defer { isChecking = false }
 
+        // @MainActor gives mutual exclusion between suspension points, not across
+        // them, so without this the refresh that FINISHES last wins rather than
+        // the one that SAMPLED last. A poll that read RunSSH=false and then
+        // stalled would republish "off" over a session the user had just enabled,
+        // and the menu bar would show a closed lock for up to 30 seconds while
+        // SSH was open -- the one thing the display is not allowed to do.
+        startedRefreshes += 1
+        let generation = startedRefreshes
+
         let socketPath = TailscaleLocalAPI.defaultSocketPath
 
         // Socket I/O blocks, so keep it off the main thread
@@ -109,6 +132,9 @@ final class Monitor {
         let stored = await Task.detached(priority: .utility) {
             StateFileStore.read()
         }.value
+
+        guard generation > publishedRefresh else { return }
+        publishedRefresh = generation
 
         snapshot = observed
         session = stored

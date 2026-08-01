@@ -27,8 +27,6 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Invoked when the user taps Extend. Set by the Monitor.
     var onExtend: (() -> Void)?
 
-    private var isAuthorized = false
-
     /// Requests permission and registers the actionable category.
     ///
     /// Failure is not fatal: notifications are a convenience layer, and the
@@ -50,7 +48,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 options: [])
         ])
 
-        isAuthorized = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+        // The answer is deliberately not kept. Caching it means a user who denies
+        // at first launch and later turns Lictor on in System Settings gets no
+        // notifications until the app restarts -- which for a menu bar resident
+        // can be weeks. The system already drops requests from an unauthorised
+        // app, so asking every time costs nothing and cannot go stale.
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
     }
 
     // MARK: - Posting
@@ -75,8 +78,6 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func post(id: String, title: String, body: String, category: String? = nil) {
-        guard isAuthorized else { return }
-
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

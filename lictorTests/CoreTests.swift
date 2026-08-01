@@ -555,4 +555,21 @@ struct HistoryTests {
     func emptyLog() {
         #expect(HistoryEvent.parse(contents: "").isEmpty)
     }
+
+    @Test("events sharing a second and a kind still get distinct ids")
+    func idsStayUnique() {
+        // Both writers stamp whole seconds, so this is reachable: the user
+        // pressing Turn off in the same second the agent records an expiry. With
+        // colliding ids `List` renders one row for the pair and drops the older,
+        // which is the anomalous one the window exists to show.
+        let contents = """
+        {"at":"2026-08-01T12:00:00Z","event":"disabled","reason":"expired"}
+        {"at":"2026-08-01T12:00:00Z","event":"disabled","reason":"user"}
+        {"at":"2026-08-01T12:00:00Z","event":"disabled","reason":"no-state"}
+        """
+        let events = HistoryEvent.parse(contents: contents)
+
+        #expect(events.count == 3)
+        #expect(Set(events.map(\.id)).count == events.count)
+    }
 }

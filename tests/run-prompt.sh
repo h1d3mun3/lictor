@@ -93,6 +93,35 @@ check "reads the pretty-printed form the app writes" \
 }')"
 
 echo
+echo "=== the prompt shares RPROMPT rather than taking it ==="
+
+# _lictor_precmd is the function that assigns RPROMPT, and until now no test
+# called it at all -- only _lictor_remaining, which reads the state file and
+# assigns nothing.
+precmd_rprompt() {
+  local existing="$1" contents="$2"
+  local state="$WORK/state.json"
+  rm -f "$state"
+  [ "$contents" = "NONE" ] || printf '%s' "$contents" > "$state"
+
+  LICTOR_STATE_FILE="$state" zsh -c "
+    RPROMPT='$existing'
+    source '$ROOT/shell/lictor-prompt.zsh' >/dev/null 2>&1
+    _lictor_precmd
+    print -r -- \"\$RPROMPT\"
+  " 2>/dev/null
+}
+
+check "an existing right prompt survives an open session" \
+  "%F{red}ssh 0:00%f [%~]" "$(precmd_rprompt '[%~]' "$(state_in -60)")"
+check "an existing right prompt survives with no session" \
+  "[%~]" "$(precmd_rprompt '[%~]' NONE)"
+check "with no existing prompt, only our segment appears" \
+  "%F{red}ssh 0:00%f" "$(precmd_rprompt '' "$(state_in -60)")"
+check "with no existing prompt and no session, nothing is left behind" \
+  "" "$(precmd_rprompt '' NONE)"
+
+echo
 echo "=== no subprocess spawning of tailscale ==="
 
 # This runs before every prompt. A process spawn per prompt would make the shell

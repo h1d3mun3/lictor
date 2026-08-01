@@ -52,7 +52,17 @@ nonisolated struct HistoryEvent: Equatable, Sendable, Identifiable {
     let expiresAt: Date?
     let durationSeconds: Int?
 
-    var id: String { "\(at.timeIntervalSince1970)-\(kind.rawValue)" }
+    /// Position in the parsed log, newest first.
+    ///
+    /// Both writers stamp whole seconds, so two events can genuinely share an
+    /// instant and a kind -- the user pressing Turn off in the same second the
+    /// agent records an expiry, which the five-minute warning actively invites.
+    /// Without the ordinal those two collide, and `List` silently renders one
+    /// row for them, dropping the older. The row it drops is exactly the
+    /// anomalous one the window exists to surface.
+    var ordinal: Int = 0
+
+    var id: String { "\(ordinal)-\(at.timeIntervalSince1970)-\(kind.rawValue)" }
 
     // MARK: - Writing
 
@@ -119,6 +129,11 @@ nonisolated struct HistoryEvent: Equatable, Sendable, Identifiable {
             .lazy
             .compactMap { parse(line: String($0)) }
             .prefix(limit)
-            .map { $0 }
+            .enumerated()
+            .map { index, event in
+                var numbered = event
+                numbered.ordinal = index
+                return numbered
+            }
     }
 }

@@ -35,20 +35,17 @@ nonisolated enum HistoryStore {
 
         let line = Data((event.line() + "\n").utf8)
 
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(
-                atPath: url.path, contents: nil,
-                attributes: [.posixPermissions: 0o600])
-        }
+        // O_APPEND, not seek-then-write. FileHandle(forWritingTo:) opens without
+        // it, which makes choosing the offset and writing two separate syscalls
+        // and lets the agent's own append land in between and be overwritten.
+        // O_CREAT here also avoids a createFile() that would truncate a log the
+        // agent had just started.
+        let descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        guard descriptor >= 0 else { return }
 
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
-        do {
-            try handle.seekToEnd()
-            try handle.write(contentsOf: line)
-        } catch {
-            return          // see the note above: a lost log line is not an error
-        }
+        try? handle.write(contentsOf: line)
     }
 
     /// Reads the log, newest first. A missing file is an empty history.

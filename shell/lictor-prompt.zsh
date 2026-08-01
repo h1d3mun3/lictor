@@ -20,6 +20,15 @@
 
 LICTOR_STATE_FILE="${LICTOR_STATE_FILE:-$HOME/.local/state/lictor/state.json}"
 
+# Whatever RPROMPT was before this file was sourced, captured once so that
+# re-sourcing cannot swallow our own segment. Lictor is one more thing on the
+# right of the prompt, not the owner of it.
+#
+# This only rescues a static RPROMPT. A theme that assigns RPROMPT from its own
+# precmd hook (powerlevel10k, starship, vcs_info) still wins or loses on hook
+# order, and the two cannot be reconciled from here.
+typeset -g _LICTOR_BASE_RPROMPT="${_LICTOR_BASE_RPROMPT-$RPROMPT}"
+
 # Shown when a session is active. %F/%f are zsh prompt colour escapes.
 : "${LICTOR_PROMPT_COLOR:=red}"
 
@@ -60,8 +69,13 @@ _lictor_precmd() {
     LICTOR_RPROMPT=""
   fi
 
-  # Append rather than overwrite, so an existing RPROMPT survives
-  RPROMPT="${LICTOR_RPROMPT}${LICTOR_RPROMPT_SUFFIX:-}"
+  # Our segment goes to the left of whatever was already there, so an existing
+  # right prompt keeps the position its user is used to.
+  if [[ -n "$LICTOR_RPROMPT" && -n "$_LICTOR_BASE_RPROMPT" ]]; then
+    RPROMPT="${LICTOR_RPROMPT} ${_LICTOR_BASE_RPROMPT}"
+  else
+    RPROMPT="${LICTOR_RPROMPT}${_LICTOR_BASE_RPROMPT}"
+  fi
 }
 
 autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _lictor_precmd \
