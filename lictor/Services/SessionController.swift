@@ -25,9 +25,11 @@ enum SessionController {
     ///
     /// The reverse order would leave a window where SSH is on with no recorded
     /// deadline. An agent tick landing in that window closes SSH at once (ADR-0005),
-    /// silently undoing the very action the user just took. This order's window
-    /// is the harmless one: a state file with SSH still off, which the agent
-    /// simply cleans up.
+    /// silently undoing the very action the user just took.
+    ///
+    /// This order's window is the survivable one, not a harmless one: a state file
+    /// with SSH still off looks exactly like a leftover, so the agent guards its own
+    /// cleanup rather than tidying away a session that is still being created.
     static func enable(duration: SessionDuration, now: Date = Date()) async throws {
         let state = SessionState.make(duration: duration, now: now)
 

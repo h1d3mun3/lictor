@@ -42,9 +42,12 @@ EXPIRES_AT="$(TZ=UTC date -r "$EXP_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')"
 # The reverse order creates a window where RunSSH is true with no state.json.
 # If an agent tick lands in that window, ADR-0005 closes SSH immediately.
 #
-# With this order the transient state is "RunSSH=false with a state.json",
-# which the agent merely cleans up (decide -> clear-state). Harmless.
-# Never open a window on the dangerous side.
+# With this order the transient state is "RunSSH=false with a state.json", which
+# looks exactly like a leftover from a closed session. The agent guards against
+# tidying that away while it is still being created; without the guard it would
+# delete this file and close SSH on the next tick.
+#
+# Never open a window on the dangerous side: SSH on with no known deadline.
 # ------------------------------------------------------------------------------
 
 TMP="$(mktemp "$STATE_DIR/.state.XXXXXX")"

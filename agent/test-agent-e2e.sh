@@ -39,6 +39,11 @@ case "$1 $2" in
   "set --ssh=false")
     [ "${STUB_SET_FAIL:-0}" = "1" ] && { echo "stub: set failed" >&2; exit 1; }
     [ "${STUB_SET_NOOP:-0}" = "1" ] || echo false > "$STUB_RUNSSH"
+    # Simulates the app writing a new session while this tick is closing the old
+    # one: the user pressing Extend on the five-minute warning.
+    if [ -n "${STUB_REPLACE_STATE:-}" ]; then
+      printf '%s' "$STUB_REPLACE_STATE" > "$LICTOR_STATE_DIR/state.json"
+    fi
     ;;
   *) echo "stub: unexpected: $*" >&2; exit 2 ;;
 esac
@@ -52,7 +57,7 @@ STUB
 chmod +x "$ROOT/bin/tailscale" "$ROOT/bin/osascript"
 
 # --- run a single case -------------------------------------------------------
-# run_case <name> <initial RunSSH> <state.json contents|NONE>
+# run_case <name> <initial RunSSH> <state.json contents|NONE> [age in seconds]
 run_case() {
   CASE_DIR="$ROOT/case-$1"
   mkdir -p "$CASE_DIR"
@@ -70,6 +75,11 @@ run_case() {
 
   if [ "$3" != "NONE" ]; then
     printf '%s' "$3" > "$LICTOR_STATE_DIR/state.json"
+    # Backdate it when asked, so it reads as a genuine leftover rather than as a
+    # session being written right now.
+    if [ -n "${4:-}" ]; then
+      touch -t "$(date -v-"$4"S '+%Y%m%d%H%M.%S')" "$LICTOR_STATE_DIR/state.json"
+    fi
   fi
 
   printf '\n  [%s]\n' "$1"
@@ -102,14 +112,32 @@ check "on without state -> disables (ADR-0005)"  "1" "$(set_calls)"
 check "on without state -> RunSSH=false"    "false" "$(cat "$STUB_RUNSSH")"
 check "on without state -> notifies"        "1" "$(notify_count)"
 
-run_case offwithstate false "$FUTURE"
-check "off with leftover state -> no set call" "0" "$(set_calls)"
-check "off with leftover state -> drops state" "no" "$(state_exists)"
-check "off with leftover state -> no notification" "0" "$(notify_count)"
+run_case offwithstate false "$FUTURE" 300
+check "off with an aged leftover -> no set call"     "0" "$(set_calls)"
+check "off with an aged leftover -> drops state"     "no" "$(state_exists)"
+check "off with an aged leftover -> no notification" "0" "$(notify_count)"
 
 run_case offclean false NONE
 check "off and clean -> does nothing"    "0" "$(set_calls)"
 check "off and clean -> no notification" "0" "$(notify_count)"
+
+echo
+echo "=== a session being enabled right now is not mistaken for a leftover ==="
+
+# The app writes state.json and only then runs the CLI, so for the length of that
+# call the file exists while RunSSH is still false. That is indistinguishable
+# from a leftover, and deleting it there destroys a session the user just
+# authorised: the next tick would see RunSSH=true with no state and close SSH.
+run_case enabling false "$FUTURE"
+check "a state file written seconds ago survives"  "yes" "$(state_exists)"
+check "and nothing is disabled because of it"      "0" "$(set_calls)"
+
+# The same window, but landing inside a tick that is closing the previous
+# session: the user pressing Extend on the five-minute warning.
+STUB_REPLACE_STATE="$FUTURE" run_case extendmidtick true "$PAST"
+check "a session written mid-tick survives the disable" "yes" "$(state_exists)"
+check "the old session is still closed"                 "false" "$(cat "$STUB_RUNSSH")"
+unset STUB_REPLACE_STATE
 
 echo
 echo "=== failure paths ==="

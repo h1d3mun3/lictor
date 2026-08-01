@@ -23,6 +23,18 @@ STATE_FILE="$LICTOR_STATE_DIR/state.json"
 LOG_FILE="$LICTOR_STATE_DIR/agent.log"
 HISTORY_FILE="$LICTOR_STATE_DIR/history.jsonl"
 NOTIFY_MARK="$LICTOR_STATE_DIR/.last-notified"
+
+# How recently the state file may have been written before this agent refuses to
+# tidy it away. The app writes state.json and only then runs `tailscale set
+# --ssh=true`, so for the duration of that CLI call the file exists while RunSSH
+# is still false -- which looks exactly like a leftover. Deleting it there
+# destroys a session the user just authorised. Far longer than the CLI takes, and
+# only ever delays a cosmetic cleanup by one tick.
+STATE_SETTLE_SECONDS=30
+
+# Set by main() from the same reading the decision is made from; see state_unchanged.
+STATE_TOKEN=""
+STATE_EXPIRES=""
 TAILSCALE="${LICTOR_TAILSCALE:-/opt/homebrew/bin/tailscale}"
 OSASCRIPT="${LICTOR_OSASCRIPT:-/usr/bin/osascript}"
 
@@ -91,6 +103,31 @@ read_expires_at() {
   grep -o '"expiresAt"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null \
     | head -1 \
     | sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# Identity of the state file: inode, mtime, size.
+state_token() {
+  stat -f '%i:%m:%z' "$STATE_FILE" 2>/dev/null || true
+}
+
+# Whether the state file is still the one this tick's decision was made from.
+#
+# Both removals below act on a reading taken earlier in the tick. If the app
+# wrote a new session in between, the file on disk is no longer the one the
+# decision was about, and removing it would destroy a session the user just
+# authorised. The deadline is the authoritative comparison -- a new session
+# carries a new one -- with the file identity as a second signal for the case
+# where a deadline happens to repeat.
+state_unchanged() {
+  [ "$(read_expires_at)" = "$STATE_EXPIRES" ] && [ "$(state_token)" = "$STATE_TOKEN" ]
+}
+
+# Seconds since the state file was last written. Prints nothing if it is absent.
+state_age() {
+  local written
+  written="$(stat -f '%m' "$STATE_FILE" 2>/dev/null)" || return 0
+  [ -n "$written" ] || return 0
+  echo $(( $(date -u '+%s') - written ))
 }
 
 # ----------------------------------------------------------------- decision ---
@@ -166,8 +203,14 @@ do_disable() {
     return 1
   fi
 
-  rm -f "$STATE_FILE"
-  log_line "OK RunSSH=false, state.json removed"
+  if state_unchanged; then
+    rm -f "$STATE_FILE"
+    log_line "OK RunSSH=false, state.json removed"
+  else
+    # A new session was written while this tick was closing the old one. SSH is
+    # off, so the user's enable will finish against a state file that survives.
+    log_line "OK RunSSH=false, kept state.json: it was replaced during this tick"
+  fi
   history_append disabled "$reason"
   # Do NOT call clear_notify_mark here. Doing so would wipe the suppression
   # marker we are about to write, and the same notification would fire every
@@ -185,6 +228,8 @@ main() {
   local runssh expires now action
   runssh="$(read_runssh)"
   expires="$(read_expires_at)"
+  STATE_EXPIRES="$expires"
+  STATE_TOKEN="$(state_token)"
   now="$(date -u '+%s')"
   action="$(decide "$runssh" "$expires" "$now")"
 
@@ -193,8 +238,16 @@ main() {
       clear_notify_mark
       ;;
     clear-state)
-      rm -f "$STATE_FILE"
-      log_line "CLEAR RunSSH=false, removed leftover state.json"
+      local age
+      age="$(state_age)"
+      if ! state_unchanged \
+         || { [ -n "$age" ] && [ "$age" -lt "$STATE_SETTLE_SECONDS" ]; }; then
+        # Being mid-enable looks identical to being a leftover. Wait a tick.
+        log_line "CLEAR skipped: state.json is too fresh to be a leftover"
+      else
+        rm -f "$STATE_FILE"
+        log_line "CLEAR RunSSH=false, removed leftover state.json"
+      fi
       clear_notify_mark
       ;;
     disable:*)
