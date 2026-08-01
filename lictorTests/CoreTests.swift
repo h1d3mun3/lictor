@@ -471,3 +471,88 @@ struct ControlAvailabilityTests {
         #expect(!canExtend(state: .unavailable(reason: "boom"), session: live))
     }
 }
+
+// MARK: -
+
+@Suite("History log")
+struct HistoryTests {
+
+    @Test("round-trips an enable")
+    func roundTripEnabled() throws {
+        let event = HistoryEvent(at: now, kind: .enabled, reason: nil,
+                                 expiresAt: now.addingTimeInterval(7200),
+                                 durationSeconds: 7200)
+        let parsed = try #require(HistoryEvent.parse(line: event.line()))
+        #expect(parsed == event)
+    }
+
+    @Test("round-trips a disable with a reason")
+    func roundTripDisabled() throws {
+        let event = HistoryEvent(at: now, kind: .disabled, reason: .expired,
+                                 expiresAt: nil, durationSeconds: nil)
+        let parsed = try #require(HistoryEvent.parse(line: event.line()))
+        #expect(parsed == event)
+    }
+
+    @Test("reads exactly what the agent's printf produces")
+    func parsesAgentOutput() throws {
+        // agent/lictor-agent.sh writes this shape. tests/run-interop.sh proves the
+        // real path; this catches a format change without running the agent.
+        let line = #"{"at":"2026-08-01T12:00:00Z","event":"disabled","reason":"no-state"}"#
+        let parsed = try #require(HistoryEvent.parse(line: line))
+
+        #expect(parsed.kind == .disabled)
+        #expect(parsed.reason == .noState)
+        #expect(parsed.at == now)
+    }
+
+    @Test("unusable lines are skipped, never surfaced as errors", arguments: [
+        "",
+        "   ",
+        "not json",
+        #"{"event":"enabled"}"#,                                // no timestamp
+        #"{"at":"2026-08-01T12:00:00Z"}"#,                      // no event
+        #"{"at":"nonsense","event":"enabled"}"#,                // bad timestamp
+        #"{"at":"2026-08-01T12:00:00Z","event":"teleported"}"#, // unknown event
+    ])
+    func skipsJunk(line: String) {
+        #expect(HistoryEvent.parse(line: line) == nil)
+    }
+
+    @Test("a log is returned newest first, with junk dropped in place")
+    func parsesFileNewestFirst() {
+        let contents = """
+        {"at":"2026-08-01T12:00:00Z","event":"enabled","durationSeconds":1800}
+        this line is corrupt
+        {"at":"2026-08-01T12:20:00Z","event":"extended"}
+        {"at":"2026-08-01T12:50:00Z","event":"disabled","reason":"expired"}
+        """
+        let events = HistoryEvent.parse(contents: contents)
+
+        #expect(events.count == 3)
+        #expect(events.map(\.kind) == [.disabled, .extended, .enabled])
+    }
+
+    @Test("the viewer caps how much it renders")
+    func respectsLimit() {
+        // The file is append-only and never trimmed, so the reader is what keeps
+        // a year of entries from deciding how long the window takes to open.
+        let contents = (0..<50)
+            .map { #"{"at":"2026-08-01T12:00:0\#($0 % 10)Z","event":"enabled"}"# }
+            .joined(separator: "\n")
+        #expect(HistoryEvent.parse(contents: contents, limit: 10).count == 10)
+    }
+
+    @Test("only the reasons Lictor did not cause count as anomalies")
+    func anomalies() {
+        #expect(HistoryEvent.Reason.noState.isAnomalous)
+        #expect(HistoryEvent.Reason.badState.isAnomalous)
+        #expect(!HistoryEvent.Reason.user.isAnomalous)
+        #expect(!HistoryEvent.Reason.expired.isAnomalous)
+    }
+
+    @Test("an empty log is empty, not an error")
+    func emptyLog() {
+        #expect(HistoryEvent.parse(contents: "").isEmpty)
+    }
+}

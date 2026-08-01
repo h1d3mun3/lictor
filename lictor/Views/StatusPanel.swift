@@ -18,6 +18,7 @@ import SwiftUI
 
 struct StatusPanel: View {
     @Bindable var monitor: Monitor
+    @Environment(\.openWindow) private var openWindow
 
     private var state: DisplayState { monitor.display.state }
 
@@ -197,6 +198,13 @@ struct StatusPanel: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
+            MenuRow(title: "History", systemImage: "clock") {
+                // An LSUIElement app has no Dock icon to bring a window forward
+                // with, so it has to activate itself or the window opens behind
+                // whatever is in front.
+                openWindow(id: HistoryWindow.id)
+                NSApp.activate(ignoringOtherApps: true)
+            }
             // Last check folded into the row that triggers one, rather than
             // occupying a label-and-value line of its own
             MenuRow(title: "Re-check",

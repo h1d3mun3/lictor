@@ -41,6 +41,12 @@ enum SessionController {
             StateFileStore.remove()
             throw error
         }
+
+        // Recorded only once the change actually took effect, so the log never
+        // claims something that did not happen.
+        HistoryStore.append(HistoryEvent(
+            at: now, kind: .enabled, reason: nil,
+            expiresAt: state.expiresAt, durationSeconds: duration.seconds))
     }
 
     /// Extends the current session by adding to its deadline.
@@ -71,6 +77,10 @@ enum SessionController {
             }
             throw error
         }
+
+        HistoryStore.append(HistoryEvent(
+            at: now, kind: .extended, reason: nil,
+            expiresAt: extended.expiresAt, durationSeconds: nil))
     }
 
     /// Disables SSH.
@@ -83,11 +93,17 @@ enum SessionController {
     /// state file, which the agent would close within 60 seconds anyway. Both
     /// orders are safe; this one leaves no window where the UI claims a session
     /// exists that has already been closed.
-    static func disable() async throws {
+    static func disable(now: Date = Date()) async throws {
         try await Task.detached(priority: .userInitiated) {
             try TailscaleCLI.setSSH(false)
         }.value
 
         StateFileStore.remove()
+
+        // The agent records the disables it performs itself; this one it never
+        // sees, because RunSSH is already false by its next tick (ADR-0009).
+        HistoryStore.append(HistoryEvent(
+            at: now, kind: .disabled, reason: .user,
+            expiresAt: nil, durationSeconds: nil))
     }
 }

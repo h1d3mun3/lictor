@@ -14,6 +14,12 @@
 
 import SwiftUI
 
+/// Identifier for the history window, shared between the scene and whatever
+/// opens it.
+enum HistoryWindow {
+    static let id = "history"
+}
+
 @main
 struct lictorApp: App {
     @State private var monitor = Monitor()
@@ -25,5 +31,13 @@ struct lictorApp: App {
             MenuBarLabel(display: monitor.display)
         }
         .menuBarExtraStyle(.window)
+
+        // Suppressed at launch: this is a menu bar app, and a window appearing
+        // on login would contradict that. It opens only from the panel.
+        Window("Lictor History", id: HistoryWindow.id) {
+            HistoryView()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 520, height: 380)
     }
 }

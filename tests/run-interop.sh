@@ -30,7 +30,9 @@ check() {
 
 swiftc -o "$BIN" \
   "$ROOT/lictor/Core/Models.swift" \
+  "$ROOT/lictor/Core/HistoryEvent.swift" \
   "$ROOT/lictor/Services/StateFileStore.swift" \
+  "$ROOT/lictor/Services/HistoryStore.swift" \
   "$ROOT/tests/interop/main.swift" || exit 1
 
 mkdir -p "$STATE_DIR"
@@ -48,7 +50,7 @@ echo "=== the app writes, the agent reads ==="
 NOW="$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%SZ' '2026-08-01T12:00:00Z' '+%s')"
 
 for duration in 1800 7200 28800; do
-  WRITTEN="$("$BIN" "$STATE_DIR" "$duration" "$NOW")"
+  WRITTEN="$("$BIN" write-state "$STATE_DIR" "$duration" "$NOW")"
   PARSED="$(read_expires_at)"
   check "duration=${duration}s: the agent parses the expiresAt the app wrote" \
     "$WRITTEN" "$PARSED"
@@ -61,7 +63,7 @@ done
 echo
 echo "=== the agent's verdict on app-written state ==="
 
-"$BIN" "$STATE_DIR" 1800 "$NOW" > /dev/null
+"$BIN" write-state "$STATE_DIR" 1800 "$NOW" > /dev/null
 check "within the deadline -> leave it alone" \
   "none" "$(decide true "$(read_expires_at)" "$NOW")"
 check "one second past the deadline -> disable" \
@@ -93,10 +95,48 @@ echo "=== the agent's own writer stays compatible ==="
 # dev-enable.sh is the reference implementation the Swift side had to match.
 # Compare the key set the two produce.
 rm -f "$STATE_DIR/state.json"
-APP_KEYS="$("$BIN" "$STATE_DIR" 1800 "$NOW" > /dev/null; python3 -c "
+APP_KEYS="$("$BIN" write-state "$STATE_DIR" 1800 "$NOW" > /dev/null; python3 -c "
 import json; print(','.join(sorted(json.load(open('$STATE_DIR/state.json')))))")"
 check "the app writes exactly the documented field set" \
   "durationSeconds,enabledAt,expiresAt,version" "$APP_KEYS"
+
+echo
+echo "=== the agent writes history, the app reads it ==="
+
+# history_append comes from the agent, sourced above. HISTORY_FILE follows
+# LICTOR_STATE_DIR, so it lands in this test's sandbox.
+rm -f "$STATE_DIR/history.jsonl"
+history_append disabled expired
+history_append disabled no-state
+history_append disabled user
+
+HISTORY="$("$BIN" read-history "$STATE_DIR/history.jsonl")"
+
+check "the app parses every line the agent wrote" \
+  "3" "$(printf '%s\n' "$HISTORY" | grep -c '|' | tr -d ' ')"
+check "newest entry comes first" \
+  "disabled|user" "$(printf '%s\n' "$HISTORY" | head -1)"
+check "the expiry reason survives the round trip" \
+  "1" "$(printf '%s\n' "$HISTORY" | grep -c 'disabled|expired' | tr -d ' ')"
+check "the anomalous reason survives the round trip" \
+  "1" "$(printf '%s\n' "$HISTORY" | grep -c 'disabled|no-state' | tr -d ' ')"
+
+# A corrupt line must not take the rest of the log down with it
+printf 'not json at all\n' >> "$STATE_DIR/history.jsonl"
+history_append disabled expired
+check "a corrupt line is skipped, the rest still parses" \
+  "4" "$("$BIN" read-history "$STATE_DIR/history.jsonl" | grep -c '|' | tr -d ' ')"
+
+check "every line the agent writes is valid JSON" \
+  "ok" "$(python3 -c "
+import json
+for line in open('$STATE_DIR/history.jsonl'):
+    line = line.strip()
+    if line == 'not json at all' or not line:
+        continue
+    json.loads(line)
+print('ok')
+" 2>&1)"
 
 echo
 echo "────────────────────────────────"

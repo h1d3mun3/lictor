@@ -21,6 +21,7 @@ set -u
 LICTOR_STATE_DIR="${LICTOR_STATE_DIR:-$HOME/.local/state/lictor}"
 STATE_FILE="$LICTOR_STATE_DIR/state.json"
 LOG_FILE="$LICTOR_STATE_DIR/agent.log"
+HISTORY_FILE="$LICTOR_STATE_DIR/history.jsonl"
 NOTIFY_MARK="$LICTOR_STATE_DIR/.last-notified"
 TAILSCALE="${LICTOR_TAILSCALE:-/opt/homebrew/bin/tailscale}"
 OSASCRIPT="${LICTOR_OSASCRIPT:-/usr/bin/osascript}"
@@ -55,6 +56,23 @@ notify_once() {
 }
 
 clear_notify_mark() { rm -f "$NOTIFY_MARK"; }
+
+# Append one line to the shared history log, read by the app's history window.
+#
+# JSON Lines, because a single small append lands atomically even while the app
+# is reading the same file. The format is the contract with the Swift side; see
+# lictor/Core/HistoryEvent.swift, and tests/run-interop.sh checks that what is
+# written here still parses there.
+#
+# **Failure is ignored on purpose.** Being unable to record that SSH closed is
+# never a reason to leave it open.
+history_append() {
+  local event="$1" reason="$2"
+  {
+    printf '{"at":"%s","event":"%s","reason":"%s"}\n' \
+      "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$event" "$reason" >> "$HISTORY_FILE"
+  } 2>/dev/null || true
+}
 
 # ------------------------------------------------------------------ readers ---
 
@@ -150,6 +168,7 @@ do_disable() {
 
   rm -f "$STATE_FILE"
   log_line "OK RunSSH=false, state.json removed"
+  history_append disabled "$reason"
   # Do NOT call clear_notify_mark here. Doing so would wipe the suppression
   # marker we are about to write, and the same notification would fire every
   # 60 seconds. The marker is cleared only when main() observes a healthy tick.

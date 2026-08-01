@@ -18,6 +18,8 @@ Measured facts about the Tailscale LocalAPI are in [../localapi.md](../localapi.
 | [0008](0008-say-that-turning-off-disconnects.md) | State unconditionally that turning off disconnects live sessions | Accepted |
 | [0009](0009-split-notification-ownership.md) | Split notification ownership between the agent and the app | Accepted |
 | [0010](0010-extend-by-adding-to-the-deadline.md) | Extend by adding to the deadline, behind Touch ID | Accepted |
+| [0011](0011-record-history-as-an-append-only-log.md) | Record history as an append-only JSON Lines log | Accepted |
+| [0012](0012-show-history-in-a-window.md) | Show history in a window, not in the dropdown | Accepted |
 
 ## Writing a new one
 
