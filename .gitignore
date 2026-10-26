@@ -7,6 +7,10 @@ xcuserdata/
 DerivedData/
 build/
 
+# Xcode Cloud workflows live in App Store Connect; this manifest is only a local
+# marker and is of no use to anyone else.
+lictor.xcodeproj/xcshareddata/xcodecloud/
+
 # The maintainer's original handoff document. Japanese, and intentionally
 # not tracked (see CLAUDE.md).
 prompt.md
