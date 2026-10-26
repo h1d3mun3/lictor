@@ -1,24 +1,44 @@
-# Lictor
+<p align="center">
+  <img src="design/icon/previews/default-512.png" alt="Lictor" width="200">
+</p>
 
-A macOS menu bar app that shows whether Tailscale SSH is currently enabled on this machine,
-and guarantees it gets switched back off on a deadline.
+<p align="center">
+  <b>A menu bar app that shows whether Tailscale SSH is on</b>: and switches it back off on a deadline.
+</p>
+
+Lictor is a native macOS menu bar app written in Swift. Its goal is that Tailscale SSH is never
+left open by accident: the state is always visible, every enable carries an expiry, and the
+expiry is enforced by a separate launchd agent, whether or not the app is still running.
+
+> **Status: built for one machine and one person.** The assumptions in
+> [ADR-0001](docs/adr/0001-assume-a-single-user-with-operator-configured.md) and
+> [ADR-0002](docs/adr/0002-enforce-from-a-launchagent.md) are sized for that, and are wrong
+> for corporate or multi-user deployments.
 
 > A lictor was a Roman public officer who walked ahead of a magistrate carrying the fasces.
 > The number of rods told passers-by how much authority was currently in force. The job was
 > to make present power visible, and to carry it around where people could see it.
 
-## Why
+## Why Lictor
 
 The machine this runs on is a daily-driver laptop, not a server. Tailscale SSH needs to be
 open sometimes and closed the rest of the time, and "closed the rest of the time" cannot
-rely on anyone remembering.
+rely on anyone remembering. Replacing the Tailscale GUI with the Homebrew formula build makes
+it worse: the SSH server works, but nothing indicates whether it is on, and the only way to
+find out is `tailscale debug prefs`.
 
-Replacing the Tailscale GUI with the Homebrew formula build makes it worse. The SSH server
-works, but nothing indicates whether it is on; the only way to find out is
-`tailscale debug prefs`.
-
-So Lictor keeps the state somewhere it will be seen, makes every enable carry an expiry,
-and enforces that expiry whether or not any part of Lictor is still running.
+- **The state stays where it will be seen.** The menu bar item is always there, and the off
+  state is visible too, because nobody notices an absence.
+- **Every enable carries an expiry.** There is no unbounded option; enabling always asks for
+  a duration.
+- **Enforcement does not depend on the app.** A launchd agent closes SSH on the deadline even
+  if the app has crashed, and it can only ever turn SSH **off**.
+- **Off is one click; on costs Touch ID and a duration.** Friction belongs on the dangerous
+  direction and nowhere else.
+- **Nothing leaves the machine.** The only thing Lictor talks to is the Tailscale LocalAPI on
+  a local unix socket.
+- **Decisions are written down.** Choices that are costly to reverse are recorded as
+  architecture decision records in [`docs/adr/`](docs/adr).
 
 ## How it is built
 
@@ -126,6 +146,19 @@ local unix socket is the only thing Lictor talks to.
 To clear the history, delete `history.jsonl`. There is deliberately no button for it
 ([ADR-0012](docs/adr/0012-show-history-in-a-window.md)).
 
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `agent/` | The launchd agent. Shell, deliberately: it must not share a build with the app |
+| `lictor/` | The menu bar app. `Core/` is pure logic, `Services/` touches the world, `Views/` draws |
+| `lictorTests/` | Swift Testing target for the app's logic |
+| `shell/` | The zsh prompt integration |
+| `tests/` | Everything that crosses a language or process boundary |
+| `docs/` | Principles, architecture decision records, and the measured LocalAPI behaviour |
+| `design/icon/` | App icon layer artwork, a reference composite, and rendered previews |
+| `scripts/` | DMG packaging and the icon layer generator |
+
 ## Tests
 
 ```bash
@@ -161,10 +194,3 @@ Deliberately absent, and not planned:
 The parts most likely to be useful on their own are `lictor/Services/UnixSocketHTTP.swift`,
 because `URLSession` cannot talk to a unix socket, and `docs/localapi.md`, because the
 Tailscale LocalAPI has no official documentation. Take either.
-
-## Status
-
-Built for one machine and one person. The assumptions in
-[ADR-0001](docs/adr/0001-assume-a-single-user-with-operator-configured.md) and
-[ADR-0002](docs/adr/0002-enforce-from-a-launchagent.md) are sized for that, and are wrong
-for corporate or multi-user deployments.
