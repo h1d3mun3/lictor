@@ -1,27 +1,48 @@
 {
-  "fill" : "system-light",
-  "groups" : [
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.22745,0.23529,0.25490,1.00000",
+      "srgb:0.08235,0.08627,0.09804,1.00000"
+    ]
+  },
+  "fill-specializations" : [
     {
-      "layers" : [
-        {
-          "image-name" : "lictor.png",
-          "name" : "lictor"
-        }
-      ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
-      },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.3
+      "appearance" : "dark",
+      "value" : {
+        "solid" : "srgb:0.04314,0.04314,0.05098,1.00000"
       }
     }
   ],
+  "groups" : [
+    {
+      "layers" : [
+        { "image-name" : "keyhole.svg", "name" : "keyhole" },
+        { "glass" : true, "image-name" : "lock.svg", "name" : "lock" }
+      ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : true, "value" : 0.5 }
+    },
+    {
+      "layers" : [
+        { "image-name" : "ring-highlight.svg", "name" : "ring-highlight" },
+        { "glass" : true, "image-name" : "arc.svg", "name" : "arc" }
+      ],
+      "shadow" : { "kind" : "none", "opacity" : 0 },
+      "translucency" : { "enabled" : false, "value" : 0 }
+    },
+    {
+      "layers" : [
+        { "image-name" : "track.svg", "name" : "track" },
+        { "image-name" : "ticks-major.svg", "name" : "ticks-major" },
+        { "image-name" : "ticks-minor.svg", "name" : "ticks-minor" },
+        { "image-name" : "edge.svg", "name" : "edge" },
+        { "image-name" : "bg-brush.svg", "name" : "bg-brush" }
+      ],
+      "shadow" : { "kind" : "none", "opacity" : 0 }
+    }
+  ],
   "supported-platforms" : {
-    "circles" : [
-      "watchOS"
-    ],
+    "circles" : [ "watchOS" ],
     "squares" : "shared"
   }
 }
